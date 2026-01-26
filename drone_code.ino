@@ -21,9 +21,9 @@
 // ==========================================
 
 // --- WIFI & MQTT CREDENTIALS ---
-const char* WIFI_SSID       = "22K_ROUTER";       
-const char* WIFI_PASSWORD   = "#Mal@dialog";   
-const char* MQTT_BROKER_IP  = "192.168.8.197";        
+const char* WIFI_SSID       = "SSID";       
+const char* WIFI_PASSWORD   = "PASSWORD";   
+const char* MQTT_BROKER_IP  = "192.168.*.***";        
 const int   MQTT_PORT       = 1883;
 const char* MQTT_CLIENT_ID  = "esp32-drone-nimsara-final";
 
