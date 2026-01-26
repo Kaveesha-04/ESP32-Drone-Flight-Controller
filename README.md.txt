@@ -42,4 +42,3 @@ The drone publishes a JSON object to `esp32/simple_drone/telemetry` containing:
 
 ## 📝 Author
 **Nimsara Karunarathna** IT Undergraduate, University of Moratuwa  
-*Specializing in Cybersecurity and Robotics*
