@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ESP32 Drone V13.6 [Clean]</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js"></script>
+    <style>
+        /* --- CORE THEME --- */
+        :root {
+            --bg-dark: #020617; --bg-med: #0f172a; --bg-light: #1e293b;
+            --text-title: #f8fafc; --text-body: #94a3b8;
+            --accent-cyan: #06b6d4; --accent-cyan-glow: rgba(6, 182, 212, 0.5);
+            --accent-blue: #3b82f6; --accent-green: #22c55e; 
+            --accent-green-glow: rgba(34, 197, 94, 0.5);
+            --accent-red: #ef4444; --accent-red-glow: rgba(239, 68, 68, 0.5);
+            --accent-yellow: #ffc107; --joystick-stick: #e2e8f0;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif; background-color: var(--bg-dark);
+            background-image: radial-gradient(circle at center, var(--bg-dark) 60%, #000);
+            color: var(--text-body); min-height: 100vh; margin: 0; padding: 0; 
+            box-sizing: border-box; overflow-y: auto; overflow-x: hidden; touch-action: none; user-select: none;
+        }
+
+        /* Scanline FX */
+        body::after {
+            content: ''; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(0deg, rgba(0,0,0,0) 0%, rgba(255,255,255,0.03) 50%, rgba(0,0,0,0) 100%);
+            background-size: 100% 4px; animation: scanline 10s linear infinite; pointer-events: none; z-index: 9999; opacity: 0.5;
+        }
+        @keyframes scanline { 0% { background-position: 0 0; } 100% { background-position: 0 400px; } }
+
+        /* --- LAYOUT --- */
+        .dashboard {
+            display: grid; grid-template-areas: "title title" "status master" "motors controls" "console console"; 
+            grid-template-rows: auto auto 1fr auto; grid-template-columns: 1fr 1fr;
+            gap: 20px; width: 100%; max-width: 1200px; margin: 0 auto; padding: 20px; box-sizing: border-box; min-height: 98vh;
+        }
+
+        h1 { grid-area: title; color: var(--text-title); font-weight: 600; font-size: 2rem; margin: 0; text-shadow: 0 0 10px var(--accent-cyan-glow); text-align: center; }
+        
+        .panel {
+            display: flex; flex-direction: column; padding: 20px;
+            background: var(--bg-dark); border-radius: 16px;
+            box-shadow: inset 0 2px 8px rgba(255,255,255,0.05); border: 1px solid var(--bg-light); z-index: 2;
+        }
+
+        /* --- STATUS PANEL --- */
+        .panel-status { grid-area: status; padding: 15px 20px; flex-direction: row; justify-content: space-between; align-items: center; }
+        .connection-ui { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;}
+        .broker-input { padding: 10px; border: 1px solid var(--bg-light); background: var(--bg-med); color: var(--text-title); border-radius: 8px; font-family: monospace; width: 140px; }
+        .btn-connect { padding: 10px 16px; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; background: var(--accent-cyan); color: var(--bg-dark); transition: all 0.2s; }
+        .btn-connect.connected { background: var(--accent-green); color: #fff; box-shadow: 0 0 10px var(--accent-green-glow); }
+        .status-indicators { display: flex; align-items: center; gap: 15px; }
+        .status-light { width: 10px; height: 10px; border-radius: 50%; background: var(--accent-red); box-shadow: 0 0 10px var(--accent-red-glow); transition: 0.3s; }
+        .status-light.connected { background: var(--accent-green); box-shadow: 0 0 15px var(--accent-green-glow); }
+        .status-text { font-weight: 700; font-size: 0.9em; color: var(--accent-red); }
+        .status-text.connected { color: var(--accent-green); }
+
+        /* --- MASTER PANEL --- */
+        .panel-master { grid-area: master; padding: 15px 20px; display: flex; gap: 15px; justify-content: center; }
+        .btn-arm-disarm, .btn-auto { flex: 1; height: 100%; min-height: 50px; font-size: 1em; font-weight: 700; border-radius: 8px; border: none; cursor: pointer; text-transform: uppercase; transition: all 0.2s; }
+        .btn-arm-disarm { background: var(--accent-red); color: #fff; box-shadow: 0 0 15px var(--accent-red-glow); }
+        .btn-arm-disarm.armed { background: var(--accent-green); box-shadow: 0 0 20px var(--accent-green-glow); animation: pulse-green 2s infinite; }
+        .btn-auto.active { background: var(--accent-yellow); color: #000; box-shadow: 0 0 15px rgba(255, 193, 7, 0.5); animation: pulse-yellow 2s infinite; }
+
+        /* --- MOTORS & TELEMETRY --- */
+        .panel-motors { grid-area: motors; }
+        .status-group { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
+        .status-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--text-title); font-weight: 600; font-size: 1.1em; background: var(--bg-med); padding: 10px; border-radius: 8px; border: 1px solid var(--bg-light); box-shadow: inset 0 0 5px rgba(6, 182, 212, 0.2); }
+        .status-box svg { width: 24px; height: 24px; fill: currentColor; }
+        .warning { color: var(--accent-red); animation: pulse-red 1s infinite; }
+
+        /* Horizon Instrument */
+        .horizon-wrapper { display: flex; flex-direction: column; align-items: center; margin-bottom: 20px; }
+        .horizon-bezel { width: 140px; height: 140px; border-radius: 50%; border: 4px solid var(--bg-light); position: relative; overflow: hidden; background: var(--bg-dark); box-shadow: inset 0 0 20px #000; }
+        .horizon-card { width: 200%; height: 200%; position: absolute; top: -50%; left: -50%; background: linear-gradient(to bottom, #0ea5e9 50%, #b45309 50%); transition: transform 0.1s linear; transform-origin: 50% 50%; }
+        .horizon-aircraft { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60px; height: 40px; pointer-events: none; z-index: 10; }
+        .horizon-aircraft .wing { position: absolute; top: 50%; height: 3px; width: 24px; background: var(--accent-yellow); }
+        .horizon-aircraft .wing.left { left: 0; } .horizon-aircraft .wing.right { right: 0; }
+        .horizon-aircraft .nose { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: var(--accent-yellow); transform: translate(-50%, -50%); border-radius: 50%; }
+        .horizon-overlay { position: absolute; top: 35px; width: 100%; text-align: center; color: #fff; font-size: 10px; font-weight: 700; text-shadow: 0 1px 2px #000; z-index: 20; }
+        
+        /* Motor Gauges */
+        .motor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; justify-items: center; }
+        .gauge { position: relative; width: 100px; height: 50px; display: flex; justify-content: center; }
+        .gauge-value { position: absolute; bottom: 5px; width: 100%; text-align: center; color: #fff; font-size: 1.1em; font-weight: 600; z-index: 5;}
+        .gauge-value span { font-size: 0.6em; color: var(--text-body); }
+        .gauge-semi-circle { position: absolute; bottom: 0; width: 100px; height: 50px; border: 8px solid var(--bg-light); border-radius: 100px 100px 0 0; border-bottom: 0; box-sizing: border-box; }
+        .gauge-needle { position: absolute; bottom: 0; left: 48px; width: 4px; height: 45px; background: var(--accent-cyan); transform-origin: bottom center; transform: rotate(-90deg); transition: transform 0.2s; border-radius: 2px; z-index: 2; }
+        .gauge-label { font-size: 0.8em; color: var(--text-body); margin-top: 5px; text-align: center; }
+
+        /* --- CONTROLS --- */
+        .panel-controls { grid-area: controls; }
+        .control-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+        .btn-switch { padding: 10px; background: var(--bg-med); color: var(--text-body); border: 1px solid var(--bg-light); border-radius: 6px; cursor: pointer; }
+        .btn-switch.active { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
+        .joystick-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; justify-items: center; padding: 20px 0; }
+        .joystick { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+        .joystick.is-inactive { opacity: 0.3; pointer-events: none; }
+        .joystick-base { width: 180px; height: 180px; background: radial-gradient(circle at 30% 30%, var(--bg-light), var(--bg-med)); border-radius: 50%; position: relative; border: 2px solid #000; touch-action: none; }
+        .joystick-stick { width: 80px; height: 80px; background: radial-gradient(circle at 30% 30%, #fff, var(--joystick-stick)); border-radius: 50%; position: absolute; top: 50px; left: 50px; cursor: grab; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        
+        /* --- CONSOLE --- */
+        .panel-console { grid-area: console; }
+        .console-box { height: 100px; background: #000; border: 1px solid var(--bg-light); border-radius: 8px; padding: 10px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+        .console-info { color: var(--text-body); }
+        .console-success { color: var(--accent-green); }
+        .console-error { color: var(--accent-red); }
+        
+        @keyframes pulse-red { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        @keyframes pulse-green { 0% { box-shadow: 0 0 20px var(--accent-green-glow); } 50% { box-shadow: 0 0 40px var(--accent-green-glow); } 100% { box-shadow: 0 0 20px var(--accent-green-glow); } }
+        @keyframes pulse-yellow { 0% { box-shadow: 0 0 15px rgba(255, 193, 7, 0.5); } 50% { box-shadow: 0 0 30px rgba(255, 193, 7, 0.5); } 100% { box-shadow: 0 0 15px rgba(255, 193, 7, 0.5); } }
+
+        @media (max-width: 900px) {
+            .dashboard { grid-template-areas: "title" "status" "master" "motors" "controls" "console"; grid-template-columns: 1fr; padding: 10px; }
+            .joystick-base { width: 260px; height: 260px; } 
+            .joystick-stick { width: 100px; height: 100px; top: 80px; left: 80px; }
+            .joystick-container { grid-template-columns: 1fr; gap: 40px; }
+            .panel-status { flex-direction: column; gap: 15px; align-items: stretch;}
+            .connection-ui { justify-content: space-between; }
+            .status-indicators { justify-content: flex-end; }
+            .status-group { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <h1>Drone Command V13.6</h1>
+
+        <div class="panel panel-status">
+            <div class="connection-ui">
+                <input type="text" id="brokerIp" class="broker-input" value="192.168.1.100" placeholder="Broker IP">
+                <button id="connectButton" class="btn-connect">Connect</button>
+            </div>
+            <div class="status-indicators">
+                <div class="status-light" id="statusLight"></div>
+                <div class="status-text" id="statusText">OFFLINE</div>
+            </div>
+        </div>
+        
+        <div class="panel panel-master">
+            <button class="btn-arm-disarm" id="btnArm">ARM ESCS</button>
+            <button class="btn-auto" id="btnAuto">AUTO MODE</button>
+        </div>
+
+        <div class="panel panel-motors">
+            <div id="viewMotors">
+                <h2>Telemetry</h2>
+                <div class="status-group">
+                    <div class="status-box">
+                        <div style="font-size:0.8em; color:#666">BATTERY</div>
+                        <div style="display:flex; align-items:center; gap:5px;">
+                            <svg id="batteryIcon" viewBox="0 0 24 24"><path d="M16 7H16.5C17.3284 7 18 7.67157 18 8.5V15.5C18 16.3284 17.3284 17 16.5 17H7.5C6.67157 17 6 16.3284 6 15.5V8.5C6 7.67157 6.67157 7 7.5 7H8V6C8 5.44772 8.44772 5 9 5H15C15.5523 5 16 5.44772 16 6V7ZM8 9V15H16V9H8Z"></path></svg>
+                            <span id="batteryText">-- V</span>
+                        </div>
+                    </div>
+                    <div class="status-box">
+                        <div style="font-size:0.8em; color:#666">ALTITUDE</div>
+                        <div id="altitudeText">-- m</div>
+                    </div>
+                </div>
+
+                <div class="horizon-wrapper">
+                    <div id="horizonInstrument" class="horizon-bezel">
+                        <div id="horizonCard" class="horizon-card"></div>
+                        <div class="horizon-aircraft"><div class="wing left"></div><div class="wing right"></div><div class="nose"></div></div>
+                        <div id="horizonValues" class="horizon-overlay">H: 0° P: 0° R: 0°</div>
+                    </div>
+                </div>
+
+                <div class="motor-grid">
+                    <div><div class="gauge"><div class="gauge-value" id="rpmValue1">0</div><div class="gauge-semi-circle"></div><div class="gauge-needle" id="needle1"></div></div><div class="gauge-label">FL (1)</div></div>
+                    <div><div class="gauge"><div class="gauge-value" id="rpmValue2">0</div><div class="gauge-semi-circle"></div><div class="gauge-needle" id="needle2"></div></div><div class="gauge-label">FR (2)</div></div>
+                    <div><div class="gauge"><div class="gauge-value" id="rpmValue3">0</div><div class="gauge-semi-circle"></div><div class="gauge-needle" id="needle3"></div></div><div class="gauge-label">BL (3)</div></div>
+                    <div><div class="gauge"><div class="gauge-value" id="rpmValue4">0</div><div class="gauge-semi-circle"></div><div class="gauge-needle" id="needle4"></div></div><div class="gauge-label">BR (4)</div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel panel-controls">
+            <h2>Manual Control</h2>
+            <div style="font-size:0.8em; color:#666; margin-bottom:10px;">Keyboard: W/S (Throttle), A/D (Yaw), Arrows (Pitch/Roll) | SPACE (Kill)</div>
+            <div class="control-switch">
+                <button class="btn-switch active" id="btnSwitchLeft">Left Stick</button>
+                <button class="btn-switch" id="btnSwitchRight">Right Stick</button>
+            </div>
+            <div class="joystick-container">
+                <div class="joystick" id="joyLeft">
+                    <div class="joystick-base" id="joyLeftBase"><div class="joystick-stick" id="joyLeftStick"></div></div>
+                    <div>Throttle / Yaw</div>
+                </div>
+                <div class="joystick is-inactive" id="joyRight">
+                    <div class="joystick-base" id="joyRightBase"><div class="joystick-stick" id="joyRightStick"></div></div>
+                    <div>Pitch / Roll</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel panel-console">
+            <h2>System Log</h2>
+            <div class="console-box" id="statusConsole"><p class="console-info">System Initialized.</p></div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const CONFIG = {
+            topics: {
+                cmd: "esp32/simple_drone/command",
+                telemetry: "esp32/simple_drone/telemetry",
+                status: "drone/control/status",
+                mode: "drone/control/mode"
+            },
+            maxRpm: 5000,
+            lowVolt: 10.5,
+            joyMax: 40, 
+            keyInc: 0.03, 
+            sendRate: 40 
+        };
+
+        // --- STATE ---
+        const state = {
+            connected: false, armed: false, auto: false,
+            joyL: { x: 0, y: -1.0 }, joyR: { x: 0, y: 0 },
+            keys: {}, touchActive: false 
+        };
+
+        let client = null, inputLoop = null, networkLoop = null;
+
+        // --- ELEMENTS ---
+        const els = {
+            ip: document.getElementById('brokerIp'), connect: document.getElementById('connectButton'),
+            statusLight: document.getElementById('statusLight'), statusText: document.getElementById('statusText'),
+            battText: document.getElementById('batteryText'), battIcon: document.getElementById('batteryIcon'),
+            altText: document.getElementById('altitudeText'),
+            horizonCard: document.getElementById('horizonCard'), horizonValues: document.getElementById('horizonValues'),
+            horizonInst: document.getElementById('horizonInstrument'),
+            needles: [document.getElementById('needle1'), document.getElementById('needle2'), document.getElementById('needle3'), document.getElementById('needle4')],
+            gauges: [document.getElementById('rpmValue1'), document.getElementById('rpmValue2'), document.getElementById('rpmValue3'), document.getElementById('rpmValue4')],
+            joyLStick: document.getElementById('joyLeftStick'), joyL: document.getElementById('joyLeft'),
+            joyRStick: document.getElementById('joyRightStick'), joyR: document.getElementById('joyRight'),
+            joyLBase: document.getElementById('joyLeftBase'), joyRBase: document.getElementById('joyRightBase'),
+            btnArm: document.getElementById('btnArm'), btnAuto: document.getElementById('btnAuto'),
+            console: document.getElementById('statusConsole'),
+            switchL: document.getElementById('btnSwitchLeft'), switchR: document.getElementById('btnSwitchRight')
+        };
+
+        // --- UTILITY ---
+        function log(msg, type='info') {
+            const d = new Date();
+            const ts = `${d.getHours()}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
+            const p = document.createElement('p'); p.className = `console-${type}`; p.innerHTML = `[${ts}] ${msg}`;
+            els.console.appendChild(p); els.console.scrollTop = els.console.scrollHeight;
+        }
+
+        function updateConnection(connected) {
+            state.connected = connected;
+            els.statusLight.classList.toggle('connected', connected);
+            els.statusText.classList.toggle('connected', connected);
+            els.statusText.innerText = connected ? 'CONNECTED' : 'OFFLINE';
+            els.connect.classList.toggle('connected', connected);
+            els.connect.innerText = connected ? 'Disconnect' : 'Connect';
+            if(connected) {
+                if(!inputLoop) inputLoop = setInterval(processInput, 16);
+                if(!networkLoop) networkLoop = setInterval(sendPacket, CONFIG.sendRate);
+            } else {
+                if(inputLoop) clearInterval(inputLoop); if(networkLoop) clearInterval(networkLoop);
+                setArmed(false);
+            }
+        }
+
+        function setArmed(armed) {
+            state.armed = armed;
+            if (armed) {
+                els.btnArm.innerText = "DISARM (Armed)"; els.btnArm.classList.add('armed');
+                els.joyL.classList.remove('is-inactive'); els.joyR.classList.remove('is-inactive');
+            } else {
+                els.btnArm.innerText = "ARM ESCS (Disarmed)"; els.btnArm.classList.remove('armed');
+                state.auto = false; els.btnAuto.classList.remove('active');
+                state.joyL = { x: 0, y: -1.0 }; state.joyR = { x: 0, y: 0 };
+                updateVisuals();
+                els.joyL.classList.add('is-inactive'); els.joyR.classList.add('is-inactive');
+            }
+        }
+
+        function updateVisuals() {
+            const max = CONFIG.joyMax;
+            let ly = state.joyL.y * -max; let lx = state.joyL.x * max;
+            els.joyLStick.style.transform = `translate(${lx}px, ${ly}px)`;
+            let ry = state.joyR.y * -max; let rx = state.joyR.x * max;
+            els.joyRStick.style.transform = `translate(${rx}px, ${ry}px)`;
+        }
+
+        // --- INPUT ENGINE ---
+        document.addEventListener('keydown', (e) => {
+            if(document.activeElement.tagName === 'INPUT') return;
+            if(e.code === 'Space') { e.preventDefault(); sendSimpleCommand(CONFIG.topics.mode, "DISARM"); state.joyL.y = -1.0; updateVisuals(); return; }
+            state.keys[e.key] = true;
+            if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
+        });
+        document.addEventListener('keyup', (e) => { state.keys[e.key] = false; });
+
+        function processInput() {
+            if(!state.armed || state.auto) return;
+            // Throttle
+            if(state.keys['w']||state.keys['W']) state.joyL.y = Math.min(1.0, state.joyL.y + CONFIG.keyInc);
+            if(state.keys['s']||state.keys['S']) state.joyL.y = Math.max(-1.0, state.joyL.y - CONFIG.keyInc);
+            // Direction (Only if touch inactive)
+            if (!state.touchActive) {
+                state.joyL.x = (state.keys['d']||state.keys['D']) ? 1.0 : (state.keys['a']||state.keys['A']) ? -1.0 : 0;
+                state.joyR.y = state.keys['ArrowUp'] ? 1.0 : state.keys['ArrowDown'] ? -1.0 : 0;
+                state.joyR.x = state.keys['ArrowRight'] ? 1.0 : state.keys['ArrowLeft'] ? -1.0 : 0;
+            }
+            updateVisuals();
+        }
+
+        // --- MQTT ---
+        function mqttConnect() {
+            if (state.connected) { if(client) client.disconnect(); updateConnection(false); return; }
+            const host = els.ip.value;
+            if(!host) { log("Enter Broker IP", "error"); return; }
+            client = new Paho.MQTT.Client(host, 9001, "web_" + Math.random().toString(16).substr(2, 8));
+            client.onConnectionLost = (r) => { log("Lost Connection", 'error'); updateConnection(false); };
+            client.onMessageArrived = onMessage;
+            client.connect({ onSuccess: () => { updateConnection(true); log("Connected", 'success'); client.subscribe(CONFIG.topics.telemetry); client.subscribe(CONFIG.topics.status); }, onFailure: (e) => log("Failed: "+e.errorMessage, 'error') });
+        }
+
+        function onMessage(msg) {
+            if (msg.destinationName === CONFIG.topics.telemetry) {
+                try {
+                    const d = JSON.parse(msg.payloadString);
+                    const p = d.p||0, r = d.r||0, y = d.y||0, b = d.b||0, a = d.a||0;
+                    
+                    els.horizonInst.style.transform = `rotate(${-r.toFixed(1)}deg)`;
+                    els.horizonCard.style.transform = `translateY(${Math.min(Math.max(p, -45), 45) / 90 * 100}%)`;
+                    els.horizonValues.innerText = `H: ${Math.round(y)}° P: ${p.toFixed(1)}° R: ${r.toFixed(1)}°`;
+
+                    els.battText.innerText = b.toFixed(2) + ' V';
+                    const lowBat = b > 0 && b < CONFIG.lowVolt;
+                    els.battText.classList.toggle('warning', lowBat);
+                    els.battIcon.classList.toggle('warning', lowBat);
+                    els.altText.innerText = a.toFixed(1) + ' m';
+
+                    if(d.arm !== undefined && (d.arm === 1) !== state.armed) setArmed(d.arm === 1);
+
+                    [d.r1, d.r2, d.r3, d.r4].forEach((val, i) => {
+                        const v = (val === undefined || val === null) ? 0 : val;
+                        const rot = (Math.min(v, CONFIG.maxRpm) / CONFIG.maxRpm) * 180 - 90;
+                        els.needles[i].style.transform = `rotate(${rot}deg)`;
+                        els.gauges[i].innerHTML = `${v}<span style="font-size:0.6em"> RPM</span>`;
+                    });
+                } catch(e){}
+            } else if (msg.destinationName === CONFIG.topics.status) {
+                const s = msg.payloadString.toUpperCase();
+                log(s, s.includes('ARM') ? 'success' : 'info');
+                if(s.includes('DISARM') || s.includes('CRASH')) setArmed(false);
+                if(s.includes('ARMED')) setArmed(true);
+            }
+        }
+
+        function sendPacket() {
+            if (!state.connected || !state.armed || state.auto) return;
+            const thr = Math.round((state.joyL.y + 1.0) / 2.0 * 100); 
+            const yaw = Math.round(state.joyL.x * 100); 
+            const pit = Math.round(state.joyR.y * 100); 
+            const roll = Math.round(state.joyR.x * 100);
+            sendSimpleCommand(CONFIG.topics.cmd, `${thr},${yaw},${pit},${roll}`);
+        }
+
+        function sendSimpleCommand(topic, payload) {
+            if(!client || !client.isConnected()) return;
+            const m = new Paho.MQTT.Message(payload); m.destinationName = topic; client.send(m);
+        }
+
+        // --- TOUCH ---
+        function setupJoystick(stick, base, store, springX, springY) {
+            let active = false;
+            const update = (cX, cY) => {
+                const r = base.getBoundingClientRect();
+                const dx = cX - (r.left + r.width/2), dy = cY - (r.top + r.height/2);
+                const dist = Math.sqrt(dx*dx+dy*dy);
+                if(dist > CONFIG.joyMax) { const k = CONFIG.joyMax/dist; store.x = (dx*k)/CONFIG.joyMax; store.y = -(dy*k)/CONFIG.joyMax; }
+                else { store.x = dx/CONFIG.joyMax; store.y = -dy/CONFIG.joyMax; }
+                stick.style.transform = `translate(${store.x*CONFIG.joyMax}px, ${-store.y*CONFIG.joyMax}px)`;
+            };
+            const reset = () => {
+                active = false; state.touchActive = false;
+                stick.style.transition = 'transform 0.1s';
+                if(springX) store.x = 0; if(springY) store.y = 0;
+                stick.style.transform = `translate(${store.x*CONFIG.joyMax}px, ${-store.y*CONFIG.joyMax}px)`;
+            };
+            const start = (cX, cY) => { if(state.armed) { active=true; state.touchActive=true; stick.style.transition='none'; update(cX, cY); } };
+            base.onmousedown = e => start(e.clientX, e.clientY);
+            document.onmousemove = e => { if(active) update(e.clientX, e.clientY); };
+            document.onmouseup = reset;
+            base.ontouchstart = e => { e.preventDefault(); start(e.touches[0].clientX, e.touches[0].clientY); };
+            document.ontouchmove = e => { if(active) { e.preventDefault(); update(e.touches[0].clientX, e.touches[0].clientY); } };
+            document.ontouchend = reset;
+        }
+
+        window.onload = () => {
+            setupJoystick(els.joyLStick, els.joyLBase, state.joyL, true, false);
+            setupJoystick(els.joyRStick, els.joyRBase, state.joyR, true, true);
+            updateVisuals();
+        };
+
+        els.connect.onclick = mqttConnect;
+        els.btnArm.onclick = () => sendSimpleCommand(CONFIG.topics.mode, state.armed ? "DISARM" : "ARM");
+        els.btnAuto.onclick = () => { if(state.armed) { state.auto = !state.auto; els.btnAuto.classList.toggle('active', state.auto); if(state.auto) sendSimpleCommand(CONFIG.topics.mode, "AUTO_START"); } };
+        els.switchL.onclick = () => { els.joyL.classList.remove('is-inactive'); els.joyR.classList.add('is-inactive'); els.switchL.classList.add('active'); els.switchR.classList.remove('active'); };
+        els.switchR.onclick = () => { els.joyR.classList.remove('is-inactive'); els.joyL.classList.add('is-inactive'); els.switchR.classList.add('active'); els.switchL.classList.remove('active'); };
+    </script>
+</body>
+</html>
