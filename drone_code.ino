@@ -1,9 +1,3 @@
-/*
- * ESP32 Drone Code - V14.5 (STABILIZED & FLIGHT READY)
- * AUTHOR: Nimsara Karunarathna
- * STATUS: MISSION READY - MAXIMUM STABILITY
- */
-
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
