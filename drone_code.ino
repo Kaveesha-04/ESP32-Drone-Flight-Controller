@@ -600,8 +600,8 @@ void setup() {
 
     // --- Initialize Notch Filters ---
     // Targets 300Hz (common motor noise) at a 250Hz sample rate (4ms loop)
-    notchPitch.init(300, 40, 250); 
-    notchRoll.init(300, 40, 250);
+    notchPitch.init(200, 40, 250); 
+    notchRoll.init(200, 40, 250);
     // -------------------------------------
 
     // Barometer Setup
