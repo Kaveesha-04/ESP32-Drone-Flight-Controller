@@ -1,3 +1,9 @@
+/*
+ * ESP32 Drone Code - V14.5 (STABILIZED & FLIGHT READY)
+ * AUTHOR: Nimsara Karunarathna
+ * STATUS: MISSION READY - MAXIMUM STABILITY
+ */
+
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
@@ -10,9 +16,9 @@
 // ===          USER CONFIGURATION        ===
 // ==========================================
 
-const char* WIFI_SSID       = "SSID";       
-const char* WIFI_PASSWORD   = "Password";   
-const char* MQTT_BROKER_IP  = "172.20.**.*";        
+const char* WIFI_SSID       = "Kaveesha's iPhone";       
+const char* WIFI_PASSWORD   = "Nimsara@2004";   
+const char* MQTT_BROKER_IP  = "172.20.10.2";        
 const int   MQTT_PORT       = 1883;
 const char* MQTT_CLIENT_ID  = "esp32-drone-nimsara-final";
 
@@ -31,9 +37,9 @@ float FORCE_GYRO_Z = 0;
 
 #define WDT_TIMEOUT 3 
 #define D_TERM_LPF_HZ 20.0f  
-#define Q_ANGLE 0.005f 
-#define Q_BIAS  0.0001f
-#define R_ACCEL 0.1f    
+#define Q_ANGLE 0.001f 
+#define Q_BIAS  0.003f
+#define R_ACCEL 0.05f    
 #define R_MAG   0.8f    
 
 #define RAD_TO_DEG 57.2957795131
@@ -80,8 +86,8 @@ float current_vspeed_mps = 0.0;
 float ground_reference_altitude = 0.0f;
 
 struct Core1to0_Data {
-    float Kp_p = 1.0, Ki_p = 0.00, Kd_p = .0; 
-    float Kp_r = 2.5, Ki_r = 0.00, Kd_r = 8.0;
+    float Kp_p = 1.0, Ki_p = 0.00, Kd_p = 1.0; 
+    float Kp_r = 1.0, Ki_r = 0.00, Kd_r = 1.0;
     float Kp_y = 5.0, Ki_y = 0.00, Kd_y = 0.0; 
     bool escsArmed = false;
     bool autoModeActive = false;
@@ -327,10 +333,10 @@ float mapFloat(float x, float in_min, float in_max, float out_min, float out_max
 
 float computePID(float input, float target, float &prev_input, float &integral, LowPassFilter &lpf, float Kp, float Ki, float Kd, float dt, bool armed, int throttle_val) {
     float error = target - input;
-    if(armed && throttle_val > 1100) {
-        if(abs(error) < 30) { 
+    if(armed && throttle_val > 1150) {
+        if(abs(error) < 20.0f) { 
             integral += (error * dt);
-            integral = constrain(integral, -80, 80); 
+            integral = constrain(integral, -30, 30); 
         }
     } else { integral = 0; }
     float P = Kp * error;
@@ -507,7 +513,7 @@ void autoModeTask(void* pvParameters) {
         float rawGyroY = ((float)-gy_raw - gyroY_offset) / 65.5f * DEG_TO_RAD;
         float gyroZ    = ((float)gz_raw - gyroZ_offset) / 65.5f * DEG_TO_RAD;
 
-        // --- Apply Dynamic Notch Filtering to remove motor noise ---
+        // --- NEW: Apply Dynamic Notch Filtering to remove motor noise ---
         float gyroX = notchRoll.update(rawGyroX);
         float gyroY = notchPitch.update(rawGyroY);
 
@@ -590,7 +596,7 @@ void setup() {
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x6B); Wire.write(0x00); Wire.endTransmission(); 
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x1B); Wire.write(0x08); Wire.endTransmission(); 
     Wire.beginTransmission(MPU_ADDR); Wire.write(0x1C); Wire.write(0x10); Wire.endTransmission(); 
-    Wire.beginTransmission(MPU_ADDR); Wire.write(0x1A); Wire.write(0x03); Wire.endTransmission(); 
+    Wire.beginTransmission(MPU_ADDR); Wire.write(0x1A); Wire.write(0x04); Wire.endTransmission(); 
 
     // Magnetometer & Sensor Calibration
     enableI2CBypass(); delay(100); 
@@ -599,9 +605,9 @@ void setup() {
     esp_task_wdt_reset(); 
 
     // --- Initialize Notch Filters ---
-    // Targets 300Hz (common motor noise) at a 250Hz sample rate (4ms loop)
-    notchPitch.init(200, 40, 250); 
-    notchRoll.init(200, 40, 250);
+    // Targets 200Hz (common motor noise) at a 500Hz sample rate (4ms loop)
+    notchPitch.init(60, 40, 250); 
+    notchRoll.init(60, 40, 250);
     // -------------------------------------
 
     // Barometer Setup
@@ -694,10 +700,10 @@ void update_escs_Core1(){
         float r = core1_local_C0to1_data.pidRollOut * voltage_compensation_factor;
         float y = core1_local_C0to1_data.pidYawOut * voltage_compensation_factor;
 
-        esc1_speed = constrain(thr - p - r + y, MIN_THROTTLE, MAX_SAFE_THROTTLE); 
-        esc2_speed = constrain(thr - p + r - y, MIN_THROTTLE, MAX_SAFE_THROTTLE); 
-        esc3_speed = constrain(thr + p - r - y, MIN_THROTTLE, MAX_SAFE_THROTTLE); 
-        esc4_speed = constrain(thr + p + r + y, MIN_THROTTLE, MAX_SAFE_THROTTLE); 
+        esc1_speed = constrain(thr + p - r + y, MIN_THROTTLE, MAX_SAFE_THROTTLE); 
+        esc2_speed = constrain(thr + p + r - y, MIN_THROTTLE, MAX_SAFE_THROTTLE); 
+        esc3_speed = constrain(thr - p - r - y, MIN_THROTTLE, MAX_SAFE_THROTTLE); 
+        esc4_speed = constrain(thr - p + r + y, MIN_THROTTLE, MAX_SAFE_THROTTLE); 
 
         esc1.writeMicroseconds(esc1_speed); esc2.writeMicroseconds(esc2_speed);
         esc3.writeMicroseconds(esc3_speed); esc4.writeMicroseconds(esc4_speed); 
