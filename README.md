@@ -1,44 +1,34 @@
-# ESP32 Drone Flight Controller - V13.8
+# 🛸 Tri-Module Drone System (Custom STM32 & ESP32 Bridge)
 
-![Status](https://img.shields.io/badge/Status-FLIGHT_READY-green)
-![Platform](https://img.shields.io/badge/Platform-ESP32-blue)
-![Author](https://img.shields.io/badge/Author-Nimsara_Karunarathna-orange)
+This repository contains the firmware and documentation for a custom-built drone system. The architecture features a dedicated radio remote, a high-speed communication bridge on the drone, and a custom STM32-based flight controller.
 
-An advanced, dual-core ESP32 flight controller featuring an **Extended Kalman Filter (EKF)** for orientation sensing and **MQTT-based** telemetry and control. This version (V13.8) is optimized for stability with a specialized Heading Lock system.
+---
 
+## 📡 System Architecture
 
+The control signal follows this path:
+**[Nano Remote]** --(NRF24L01)--> **[ESP32 Bridge (Drone)]** --(Serial/UART)--> **[STM32 Flight Controller]**
 
-## 🚀 Key Features (V13.8)
-* **Navigation:** Heading Lock ENABLED (Automatic North-finding on boot).
-* **Stability:** Custom EKF implementation for precise Pitch/Roll/Yaw estimation.
-* **Dual-Core Execution:** * **Core 0:** High-speed sensor fusion and PID loops (250Hz).
-    * **Core 1:** MQTT communication, failsafe logic, and battery monitoring.
-* **Failsafe:** Automatic controlled descent if the MQTT connection is lost for >4 seconds.
-* **Compensation:** Real-time voltage compensation for consistent thrust as battery drops.
+### 1. Remote Control (Transmitter)
+* **Hardware:** Arduino Nano + NRF24L01 + Joysticks.
+* **Role:** Reads analog joystick values (Pitch, Roll, Yaw, Throttle), packages them into a struct, and transmits them via 2.4GHz radio.
 
-## 🛠 Hardware Configuration
-| Component | Pin / Address | Note |
-|---|---|---|
-| **MPU6050** | 0x68 (I2C) | IMU - Accel/Gyro |
-| **HMC/QMC5883L** | 0x1E / 0x0D | Magnetometer (Heading Lock) |
-| **BMP280** | 0x76 / 0x77 | Barometer (Altitude sensing) |
-| **ESC 1** | GPIO 26 | Front Left (CW) |
-| **ESC 2** | GPIO 32 | Front Right (CCW) |
-| **ESC 3** | GPIO 25 | Rear Left (CCW) |
-| **ESC 4** | GPIO 27 | Rear Right (CW) |
-| **Battery Pin** | GPIO 34 | 3S LiPo Monitoring |
+### 2. Communication Bridge (Receiver)
+* **Hardware:** ESP32 WROOM + NRF24L01.
+* **Role:** Receives the NRF24L01 packets from the Nano. It acts as a "bridge," forwarding the control data to the STM32 via Hardware Serial while simultaneously providing a Web Dashboard for telemetry.
 
-## 📡 MQTT Telemetry Stream
-The drone publishes a JSON object to `esp32/simple_drone/telemetry` containing:
-* `p`, `r`, `y`: Pitch, Roll, and Yaw angles.
-* `a`: Current altitude (meters).
-* `b`: Battery voltage (V).
-* `r1-r4`: Individual ESC output speeds.
+### 3. Flight Controller (Core)
+* **Hardware:** Custom PCB with STM32 Chip.
+* **Role:** Receives bridged control data, processes PID loops, merges sensor data (IMU), and generates PWM signals for the ESCs/Motors.
 
-## ⚠️ Safety Warnings
-1.  **Propellers OFF:** Always remove propellers when testing code or performing indoor calibrations.
-2.  **Calibration:** Ensure the drone is perfectly level during the "Finding North" boot phase.
-3.  **Failsafe:** The drone is set to auto-disarm after 8 seconds of failsafe descent.
+---
 
-## 📝 Author
-**Nimsara Karunarathna** IT Undergraduate, University of Moratuwa  
+## 📂 Repository Structure
+
+```text
+├── nano-remote/              # Transmitter firmware (Arduino/C++)
+├── esp32-bridge/             # Receiver & Telemetry Bridge (C++/ESP-IDF or Arduino)
+│   └── web-dashboard/        # HTML/CSS/JS for the Wi-Fi interface
+├── stm32-fc/                 # Core Flight Controller logic (C++)
+├── hardware/                 # Schematics, PCB layouts, and pinouts
+└── shared/                   # Common header files (e.g., protocol.h)
